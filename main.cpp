@@ -217,40 +217,41 @@ static void rebuild_from_log_if_needed() {
     }
     ifstream flog(LOG_FILE);
     if (!flog.good()) return;
-    // Process each bucket sequentially to limit file count and memory
+
+    // One-pass split kvstore.log into per-bucket temp logs
+    vector<unique_ptr<ofstream>> outs(NUM_BUCKETS);
     for (int b = 0; b < NUM_BUCKETS; ++b) {
-        // Create a temporary per-bucket log by scanning the global log
-        string tmp = string("bucket_tmp_") + to_string(b) + ".log";
-        {
-            flog.clear();
-            flog.seekg(0);
-            ofstream out(tmp, ios::trunc);
-            string line;
-            while (getline(flog, line)) {
-                if (line.empty()) continue;
-                // Quick parse to get key
-                vector<string> tok; tok.reserve(4);
-                string cur;
-                for (char c : line) {
-                    if (isspace((unsigned char)c)) { if (!cur.empty()) { tok.push_back(cur); cur.clear(); } }
-                    else cur.push_back(c);
-                }
-                if (!cur.empty()) tok.push_back(cur);
-                if (tok.size() < 3) continue;
-                string key = (tok.size() == 4) ? tok[2] : tok[1];
-                if (bucket_id(key) == b) out << line << '\n';
-            }
+        outs[b] = make_unique<ofstream>(string("bucket_tmp_") + to_string(b) + ".log", ios::trunc);
+    }
+    string line;
+    while (getline(flog, line)) {
+        if (line.empty()) continue;
+        // parse key quickly
+        vector<string> tok; tok.reserve(4);
+        string cur;
+        for (char c : line) {
+            if (isspace((unsigned char)c)) { if (!cur.empty()) { tok.push_back(cur); cur.clear(); } }
+            else cur.push_back(c);
         }
-        // Build bucket data from its temporary log
+        if (!cur.empty()) tok.push_back(cur);
+        if (tok.size() < 3) continue;
+        string key = (tok.size() == 4) ? tok[2] : tok[1];
+        int b = bucket_id(key);
+        (*outs[b]) << line << '\n';
+    }
+    for (int b = 0; b < NUM_BUCKETS; ++b) outs[b]->close();
+
+    // Build each bucket from its own temp log
+    for (int b = 0; b < NUM_BUCKETS; ++b) {
         unordered_map<string, vector<int>> data; data.reserve(2048);
-        ifstream tin(tmp);
+        ifstream tin(string("bucket_tmp_") + to_string(b) + ".log");
         if (tin.good()) {
-            string line;
-            while (getline(tin, line)) {
-                if (line.empty()) continue;
+            string l;
+            while (getline(tin, l)) {
+                if (l.empty()) continue;
                 vector<string> tok; tok.reserve(4);
                 string cur;
-                for (char c : line) {
+                for (char c : l) {
                     if (isspace((unsigned char)c)) { if (!cur.empty()) { tok.push_back(cur); cur.clear(); } }
                     else cur.push_back(c);
                 }
@@ -271,8 +272,7 @@ static void rebuild_from_log_if_needed() {
             tin.close();
         }
         write_bucket(b, data);
-        // Remove temporary log
-        remove(tmp.c_str());
+        remove((string("bucket_tmp_") + to_string(b) + ".log").c_str());
     }
 }
 
