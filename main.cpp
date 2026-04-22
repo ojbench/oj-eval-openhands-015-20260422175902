@@ -37,27 +37,47 @@ int main() {
         if (cmd == "insert") {
             string idx; int v;
             cin >> idx >> v;
-            fout << 'I' << ' ' << idx << ' ' << v << '\n';
+            fout << 'I' << ' ' << idx.size() << ' ' << idx << ' ' << v << '\n';
+            fout.flush();
         } else if (cmd == "delete") {
             string idx; int v;
             cin >> idx >> v;
-            fout << 'D' << ' ' << idx << ' ' << v << '\n';
+            fout << 'D' << ' ' << idx.size() << ' ' << idx << ' ' << v << '\n';
+            fout.flush();
         } else if (cmd == "find") {
             string idx; cin >> idx;
             vector<int> vals;
             vals.reserve(256);
             ifstream fin(LOG_FILE);
             if (fin.good()) {
-                char op;
-                while (fin >> op) {
-                    string t1; fin >> t1; // either len or key
+                string line;
+                while (getline(fin, line)) {
+                    if (line.empty()) continue;
+                    // tokenize by spaces
+                    vector<string> tok;
+                    tok.reserve(4);
+                    string cur;
+                    for (size_t p = 0; p < line.size(); ++p) {
+                        char c = line[p];
+                        if (isspace(static_cast<unsigned char>(c))) {
+                            if (!cur.empty()) { tok.push_back(cur); cur.clear(); }
+                        } else {
+                            cur.push_back(c);
+                        }
+                    }
+                    if (!cur.empty()) tok.push_back(cur);
+                    if (tok.size() < 3) continue;
+                    char op = tok[0].empty() ? '?' : tok[0][0];
                     string key;
-                    int val;
-                    if (is_number(t1)) {
-                        fin >> key >> val;
+                    int val = 0;
+                    if (tok.size() == 4) {
+                        // len key val
+                        key = tok[2];
+                        val = stoi(tok[3]);
                     } else {
-                        key = t1;
-                        fin >> val;
+                        // key val
+                        key = tok[1];
+                        val = stoi(tok[2]);
                     }
                     if (key != idx) continue;
                     auto it = lower_bound(vals.begin(), vals.end(), val);
